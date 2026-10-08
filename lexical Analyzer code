@@ -1,0 +1,1245 @@
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX 10000
+#define TOKEN_SIZE 100
+
+/* TOKEN COUNTERS */
+
+int keyword_count = 0;
+int identifier_count = 0;
+int constant_count = 0;
+int operator_count = 0;
+int special_count = 0;
+int string_count = 0;
+int character_count = 0;
+int error_count = 0;
+
+/* KEYWORDS */
+
+char *keywords[] =
+{
+    "auto", "break", "case", "char", "const",
+    "continue", "default", "do", "double",
+    "else", "enum", "extern", "float", "for",
+    "goto", "if", "int", "long", "register",
+    "return", "short", "signed", "sizeof",
+    "static", "struct", "switch", "typedef",
+    "union", "unsigned", "void", "volatile",
+    "while"
+};
+
+int keywordTotal = 33;
+
+/* CHECK KEYWORD */
+
+int isKeyword(char word[])
+{
+    int i;
+
+    for(i = 0; i < keywordTotal; i++)
+    {
+        if(strcmp(word, keywords[i]) == 0)
+            return 1;
+    }
+
+    return 0;
+}
+
+/* CHECK OPERATOR */
+
+int isOperator(char ch)
+{
+    char operators[] = "+-*/%=<>!&|^~";
+    int i;
+
+    for(i = 0; operators[i] != '\0'; i++)
+    {
+        if(ch == operators[i])
+            return 1;
+    }
+
+    return 0;
+}
+
+/* CHECK SPECIAL SYMBOL */
+
+int isSpecialSymbol(char ch)
+{
+    char symbols[] = "(){}[];,.:?";
+    int i;
+
+    for(i = 0; symbols[i] != '\0'; i++)
+    {
+        if(ch == symbols[i])
+            return 1;
+    }
+
+    return 0;
+}
+
+/* DISPLAY TOKEN */
+
+void displayToken(char lexeme[], char token[], int line)
+{
+    printf("%-35s %-25s %-5d\n",
+           lexeme, token, line);
+}
+
+/* LEXICAL ERROR */
+
+void lexicalError(char message[], int line)
+{
+    displayToken(message, "LEXICAL ERROR", line);
+    error_count++;
+}
+
+/* RESET COUNTERS */
+
+void resetCounters()
+{
+    keyword_count = 0;
+    identifier_count = 0;
+    constant_count = 0;
+    operator_count = 0;
+    special_count = 0;
+    string_count = 0;
+    character_count = 0;
+    error_count = 0;
+}
+
+/* REMOVE COMMENTS */
+
+int skipComment(char source[], int *i, int *line)
+{
+    int j = *i;
+
+    /* Single line comment */
+
+    if(source[j] == '/' && source[j + 1] == '/')
+    {
+        j += 2;
+
+        while(source[j] != '\0' && source[j] != '\n')
+            j++;
+
+        *i = j;
+
+        return 1;
+    }
+
+    /* Multi line comment */
+
+    if(source[j] == '/' && source[j + 1] == '*')
+    {
+        j += 2;
+
+        while(source[j] != '\0')
+        {
+            if(source[j] == '\n')
+                (*line)++;
+
+            if(source[j] == '*' &&
+               source[j + 1] == '/')
+            {
+                j += 2;
+                *i = j;
+                return 1;
+            }
+
+            j++;
+        }
+
+        *i = j;
+
+        lexicalError("Unclosed comment", *line);
+
+        return 1;
+    }
+
+    return 0;
+}
+
+/* KEYWORD / IDENTIFIER */
+
+void processWord(char source[], int *i, int line)
+{
+    char word[TOKEN_SIZE];
+    int j = 0;
+
+    while(isalnum((unsigned char)source[*i]) ||
+          source[*i] == '_')
+    {
+        if(j < TOKEN_SIZE - 1)
+            word[j++] = source[*i];
+
+        (*i)++;
+    }
+
+    word[j] = '\0';
+
+    if(isKeyword(word))
+    {
+        displayToken(word, "KEYWORD", line);
+        keyword_count++;
+    }
+    else
+    {
+        displayToken(word, "IDENTIFIER", line);
+        identifier_count++;
+    }
+}
+
+/* NUMBER VALIDATION
+
+   1. Variable should not start with number
+   2. Binary validation
+   3. Octal validation
+   4. Hexadecimal validation
+   5. Decimal should not contain alphabets
+*/
+
+void processNumber(char source[], int *i, int line)
+{
+    char number[TOKEN_SIZE];
+    int j = 0;
+    int k;
+    int valid;
+    int digitCount;
+    int dotCount;
+
+    /*
+       Collect complete lexeme.
+
+       This is important for:
+       2age
+       123abc
+       0b102
+       0x1G
+       089
+    */
+
+    while(isalnum((unsigned char)source[*i]) ||
+          source[*i] == '_' ||
+          source[*i] == '.')
+    {
+        if(j < TOKEN_SIZE - 1)
+            number[j++] = source[*i];
+
+        (*i)++;
+    }
+
+    number[j] = '\0';
+
+    /* --------------------------------
+       BINARY NUMBER
+       -------------------------------- */
+
+    if(number[0] == '0' &&
+       (number[1] == 'b' ||
+        number[1] == 'B'))
+    {
+        valid = 1;
+
+        if(number[2] == '\0')
+            valid = 0;
+
+        for(k = 2; number[k] != '\0'; k++)
+        {
+            if(number[k] != '0' &&
+               number[k] != '1')
+            {
+                valid = 0;
+            }
+        }
+
+        if(valid)
+        {
+            displayToken(number, "CONSTANT", line);
+            constant_count++;
+        }
+        else
+        {
+            lexicalError(
+                "Invalid binary number",
+                line);
+        }
+
+        return;
+    }
+
+    /* --------------------------------
+       HEXADECIMAL NUMBER
+       -------------------------------- */
+
+    if(number[0] == '0' &&
+       (number[1] == 'x' ||
+        number[1] == 'X'))
+    {
+        valid = 1;
+
+        if(number[2] == '\0')
+            valid = 0;
+
+        for(k = 2; number[k] != '\0'; k++)
+        {
+            if(!isxdigit((unsigned char)number[k]))
+                valid = 0;
+        }
+
+        if(valid)
+        {
+            displayToken(number, "CONSTANT", line);
+            constant_count++;
+        }
+        else
+        {
+            lexicalError(
+                "Invalid hexadecimal number",
+                line);
+        }
+
+        return;
+    }
+
+    /* --------------------------------
+       VARIABLE CANNOT START WITH NUMBER
+       -------------------------------- */
+
+    digitCount = 0;
+
+    while(isdigit((unsigned char)number[digitCount]))
+    {
+        digitCount++;
+    }
+
+    /*
+       Assignment-specific rule:
+
+       2age   -> Variable starts with number
+       5value -> Variable starts with number
+
+       123abc -> Invalid decimal number
+       456xyz -> Invalid decimal number
+    */
+
+    if(isalpha((unsigned char)number[digitCount]) ||
+       number[digitCount] == '_')
+    {
+        if(digitCount == 1)
+        {
+            lexicalError(
+                "Variable starts with number",
+                line);
+        }
+        else
+        {
+            lexicalError(
+                "Invalid decimal number",
+                line);
+        }
+
+        return;
+    }
+
+    /* --------------------------------
+       OCTAL VALIDATION
+
+       0755 -> valid
+       089  -> invalid
+       -------------------------------- */
+
+    if(number[0] == '0' &&
+       number[1] != '\0' &&
+       number[1] != '.')
+    {
+        valid = 1;
+
+        for(k = 1; number[k] != '\0'; k++)
+        {
+            if(number[k] < '0' ||
+               number[k] > '7')
+            {
+                valid = 0;
+                break;
+            }
+        }
+
+        if(!valid)
+        {
+            lexicalError(
+                "Invalid octal number",
+                line);
+
+            return;
+        }
+    }
+
+    /* --------------------------------
+       DECIMAL DOT VALIDATION
+       -------------------------------- */
+
+    dotCount = 0;
+
+    for(k = 0; number[k] != '\0'; k++)
+    {
+        if(number[k] == '.')
+            dotCount++;
+    }
+
+    if(dotCount > 1)
+    {
+        lexicalError(
+            "Invalid decimal number",
+            line);
+
+        return;
+    }
+
+    /* VALID NUMBER */
+
+    displayToken(number, "CONSTANT", line);
+    constant_count++;
+}
+
+/* OPERATORS */
+
+void processOperator(char source[], int *i, int line)
+{
+    char op[3];
+
+    op[0] = source[*i];
+    op[1] = '\0';
+    op[2] = '\0';
+
+    /* Two character operators */
+
+    if((source[*i] == '=' &&
+        source[*i + 1] == '=') ||
+
+       (source[*i] == '!' &&
+        source[*i + 1] == '=') ||
+
+       (source[*i] == '<' &&
+        source[*i + 1] == '=') ||
+
+       (source[*i] == '>' &&
+        source[*i + 1] == '=') ||
+
+       (source[*i] == '+' &&
+        source[*i + 1] == '+') ||
+
+       (source[*i] == '-' &&
+        source[*i + 1] == '-') ||
+
+       (source[*i] == '+' &&
+        source[*i + 1] == '=') ||
+
+       (source[*i] == '-' &&
+        source[*i + 1] == '=') ||
+
+       (source[*i] == '*' &&
+        source[*i + 1] == '=') ||
+
+       (source[*i] == '/' &&
+        source[*i + 1] == '=') ||
+
+       (source[*i] == '%' &&
+        source[*i + 1] == '=') ||
+
+       (source[*i] == '&' &&
+        source[*i + 1] == '&') ||
+
+       (source[*i] == '|' &&
+        source[*i + 1] == '|'))
+    {
+        op[1] = source[*i + 1];
+        op[2] = '\0';
+
+        (*i) += 2;
+    }
+    else
+    {
+        (*i)++;
+    }
+
+    displayToken(op, "OPERATOR", line);
+    operator_count++;
+}
+
+/* STRING */
+
+void processString(char source[], int *i, int *line)
+{
+    char str[TOKEN_SIZE];
+    int j = 0;
+    int closed = 0;
+
+    str[j++] = source[*i];
+    (*i)++;
+
+    while(source[*i] != '\0')
+    {
+        if(source[*i] == '\\')
+        {
+            if(j < TOKEN_SIZE - 1)
+                str[j++] = source[*i];
+
+            (*i)++;
+
+            if(source[*i] != '\0')
+            {
+                if(j < TOKEN_SIZE - 1)
+                    str[j++] = source[*i];
+
+                (*i)++;
+            }
+
+            continue;
+        }
+
+        if(source[*i] == '"')
+        {
+            if(j < TOKEN_SIZE - 1)
+                str[j++] = source[*i];
+
+            (*i)++;
+
+            closed = 1;
+            break;
+        }
+
+        if(source[*i] == '\n')
+            (*line)++;
+
+        if(j < TOKEN_SIZE - 1)
+            str[j++] = source[*i];
+
+        (*i)++;
+    }
+
+    str[j] = '\0';
+
+    if(closed)
+    {
+        displayToken(str, "STRING", *line);
+        string_count++;
+    }
+    else
+    {
+        lexicalError("Unclosed string", *line);
+    }
+}
+
+/* CHARACTER */
+
+void processCharacter(char source[], int *i, int line)
+{
+    char character[TOKEN_SIZE];
+    int j = 0;
+    int closed = 0;
+
+    character[j++] = source[*i];
+    (*i)++;
+
+    if(source[*i] == '\\')
+    {
+        if(j < TOKEN_SIZE - 1)
+            character[j++] = source[*i];
+
+        (*i)++;
+
+        if(source[*i] != '\0')
+        {
+            if(j < TOKEN_SIZE - 1)
+                character[j++] = source[*i];
+
+            (*i)++;
+        }
+    }
+    else if(source[*i] != '\0')
+    {
+        if(j < TOKEN_SIZE - 1)
+            character[j++] = source[*i];
+
+        (*i)++;
+    }
+
+    if(source[*i] == '\'')
+    {
+        if(j < TOKEN_SIZE - 1)
+            character[j++] = source[*i];
+
+        (*i)++;
+
+        closed = 1;
+    }
+
+    character[j] = '\0';
+
+    if(closed)
+    {
+        displayToken(
+            character,
+            "CHARACTER",
+            line);
+
+        character_count++;
+    }
+    else
+    {
+        lexicalError(
+            "Unclosed character",
+            line);
+    }
+}
+
+/*
+   { }  -> properly matched
+   ( )  -> properly matched
+   [ ]  -> same line
+*/
+
+/* MAIN LEXICAL ANALYSIS */
+
+void lexicalAnalyzer(char source[])
+{
+    int i = 0;
+    int line = 1;
+
+    /*
+       One stack for { ( [
+       This also detects wrong nesting.
+    */
+
+    char bracketStack[MAX];
+    int bracketLine[MAX];
+    int top = -1;
+
+    /*
+       Square bracket information
+       [ and ] must be on same line
+    */
+
+    int squareOpen = 0;
+    int squareLine = 0;
+
+    while(source[i] != '\0')
+    {
+        /* SPACE */
+
+        if(source[i] == ' ' ||
+           source[i] == '\t' ||
+           source[i] == '\r')
+        {
+            i++;
+            continue;
+        }
+
+        /* NEW LINE */
+
+        if(source[i] == '\n')
+        {
+            /*
+               Square bracket must close
+               before newline.
+            */
+
+            if(squareOpen)
+            {
+                lexicalError(
+                    "Square bracket not closed on same line",
+                    squareLine);
+
+                if(top >= 0 &&
+                   bracketStack[top] == '[')
+                {
+                    top--;
+                }
+
+                squareOpen = 0;
+            }
+
+            line++;
+            i++;
+
+            continue;
+        }
+
+        /* COMMENTS */
+
+        if(source[i] == '/' &&
+           (source[i + 1] == '/' ||
+            source[i + 1] == '*'))
+        {
+            skipComment(
+                source,
+                &i,
+                &line);
+
+            continue;
+        }
+
+        /* PREPROCESSOR */
+
+        if(source[i] == '#')
+        {
+            char preprocessor[TOKEN_SIZE];
+            int j = 0;
+
+            while(source[i] != '\0' &&
+                  source[i] != '\n')
+            {
+                if(j < TOKEN_SIZE - 1)
+                    preprocessor[j++] = source[i];
+
+                i++;
+            }
+
+            preprocessor[j] = '\0';
+
+            displayToken(
+                preprocessor,
+                "PREPROCESSOR",
+                line);
+
+            continue;
+        }
+
+        /* KEYWORD / IDENTIFIER */
+
+        if(isalpha((unsigned char)source[i]) ||
+           source[i] == '_')
+        {
+            processWord(
+                source,
+                &i,
+                line);
+
+            continue;
+        }
+
+        /* NUMBER */
+
+        if(isdigit((unsigned char)source[i]))
+        {
+            processNumber(
+                source,
+                &i,
+                line);
+
+            continue;
+        }
+
+        /* STRING */
+
+        if(source[i] == '"')
+        {
+            processString(
+                source,
+                &i,
+                &line);
+
+            continue;
+        }
+
+        /* CHARACTER */
+
+        if(source[i] == '\'')
+        {
+            processCharacter(
+                source,
+                &i,
+                line);
+
+            continue;
+        }
+
+        /*
+         * OPEN CURLY {
+         */
+
+        if(source[i] == '{')
+        {
+            bracketStack[++top] = '{';
+            bracketLine[top] = line;
+
+            displayToken(
+                "{",
+                "SPECIAL SYMBOL",
+                line);
+
+            special_count++;
+
+            i++;
+
+            continue;
+        }
+
+        /*
+         * CLOSE CURLY }
+         */
+
+        if(source[i] == '}')
+        {
+            if(top < 0)
+            {
+                lexicalError(
+                    "Unmatched }",
+                    line);
+            }
+            else if(bracketStack[top] != '{')
+            {
+                lexicalError(
+                    "Mismatched bracket",
+                    line);
+            }
+            else
+            {
+                top--;
+
+                displayToken(
+                    "}",
+                    "SPECIAL SYMBOL",
+                    line);
+
+                special_count++;
+            }
+
+            i++;
+
+            continue;
+        }
+
+        /*
+         * OPEN PAREN (
+         */
+
+        if(source[i] == '(')
+        {
+            bracketStack[++top] = '(';
+            bracketLine[top] = line;
+
+            displayToken(
+                "(",
+                "SPECIAL SYMBOL",
+                line);
+
+            special_count++;
+
+            i++;
+
+            continue;
+        }
+
+        /*
+         * CLOSE PAREN )
+         */
+
+        if(source[i] == ')')
+        {
+            if(top < 0)
+            {
+                lexicalError(
+                    "Unmatched )",
+                    line);
+            }
+            else if(bracketStack[top] != '(')
+            {
+                lexicalError(
+                    "Mismatched bracket",
+                    line);
+            }
+            else
+            {
+                top--;
+
+                displayToken(
+                    ")",
+                    "SPECIAL SYMBOL",
+                    line);
+
+                special_count++;
+            }
+
+            i++;
+
+            continue;
+        }
+
+        /*
+         * OPEN SQUARE [
+         */
+
+        if(source[i] == '[')
+        {
+            if(squareOpen)
+            {
+                lexicalError(
+                    "Nested square bracket",
+                    line);
+            }
+            else
+            {
+                squareOpen = 1;
+                squareLine = line;
+
+                bracketStack[++top] = '[';
+                bracketLine[top] = line;
+
+                displayToken(
+                    "[",
+                    "SPECIAL SYMBOL",
+                    line);
+
+                special_count++;
+            }
+
+            i++;
+
+            continue;
+        }
+
+        /*
+         * CLOSE SQUARE ]
+         */
+
+        if(source[i] == ']')
+        {
+            if(!squareOpen)
+            {
+                lexicalError(
+                    "Unmatched ]",
+                    line);
+            }
+            else if(top < 0 ||
+                    bracketStack[top] != '[')
+            {
+                lexicalError(
+                    "Mismatched bracket",
+                    line);
+            }
+            else
+            {
+                top--;
+                squareOpen = 0;
+
+                displayToken(
+                    "]",
+                    "SPECIAL SYMBOL",
+                    line);
+
+                special_count++;
+            }
+
+            i++;
+
+            continue;
+        }
+
+        /* OPERATOR */
+
+        if(isOperator(source[i]))
+        {
+            processOperator(
+                source,
+                &i,
+                line);
+
+            continue;
+        }
+
+        /* OTHER SPECIAL SYMBOL */
+
+        if(isSpecialSymbol(source[i]))
+        {
+            char symbol[2];
+
+            symbol[0] = source[i];
+            symbol[1] = '\0';
+
+            displayToken(
+                symbol,
+                "SPECIAL SYMBOL",
+                line);
+
+            special_count++;
+
+            i++;
+
+            continue;
+        }
+
+        /* UNKNOWN CHARACTER */
+
+        {
+            char error[2];
+
+            error[0] = source[i];
+            error[1] = '\0';
+
+            lexicalError(
+                error,
+                line);
+
+            i++;
+        }
+    }
+
+    /*
+       END OF FILE BRACKET VALIDATION
+    */
+
+    while(top >= 0)
+    {
+        if(bracketStack[top] == '{')
+        {
+            lexicalError(
+                "Unclosed {",
+                bracketLine[top]);
+        }
+        else if(bracketStack[top] == '(')
+        {
+            lexicalError(
+                "Unclosed (",
+                bracketLine[top]);
+        }
+
+        top--;
+    }
+}
+
+/* INSERT */
+
+void insertSource(char source[])
+{
+    int length = 0;
+
+    printf("\n========== INSERT ==========\n");
+
+    printf("Enter C source code.\n");
+    printf("Enter END on a separate line.\n\n");
+
+    while(length < MAX - 1)
+    {
+        char line[500];
+        int i;
+
+        if(fgets(line, sizeof(line), stdin) == NULL)
+            break;
+
+        if(strcmp(line, "END\n") == 0 ||
+           strcmp(line, "END") == 0)
+        {
+            break;
+        }
+
+        for(i = 0; line[i] != '\0'; i++)
+        {
+            if(length < MAX - 1)
+                source[length++] = line[i];
+        }
+    }
+
+    source[length] = '\0';
+
+    printf("\nSource code inserted successfully.\n");
+}
+
+/* VIEW */
+
+void viewSource(char source[])
+{
+    if(source[0] == '\0')
+    {
+        printf("\nNo source code available.\n");
+        printf("Use INSERT first.\n");
+        return;
+    }
+
+    printf("\n========== VIEW ==========\n");
+
+    printf("\nSource Code:\n");
+    printf("-------------------------\n");
+    printf("%s", source);
+
+    printf("\nToken Table:\n");
+
+    printf("---------------------------------------------------------------------\n");
+
+    printf("%-35s %-25s %-5s\n",
+           "LEXEME",
+           "TOKEN",
+           "LINE");
+
+    printf("---------------------------------------------------------------------\n");
+
+    resetCounters();
+
+    lexicalAnalyzer(source);
+
+    printf("---------------------------------------------------------------------\n");
+
+    printf("Keywords    : %d\n", keyword_count);
+    printf("Identifiers : %d\n", identifier_count);
+    printf("Constants   : %d\n", constant_count);
+    printf("Operators   : %d\n", operator_count);
+    printf("Special     : %d\n", special_count);
+    printf("Strings     : %d\n", string_count);
+    printf("Characters  : %d\n", character_count);
+    printf("Total Errors: %d\n", error_count);
+}
+
+/* EDIT */
+
+void editSource(char source[])
+{
+    if(source[0] == '\0')
+    {
+        printf("\nNo source code available.\n");
+        printf("Use INSERT first.\n");
+        return;
+    }
+
+    printf("\n========== EDIT ==========\n");
+
+    printf("Current source code:\n");
+    printf("-------------------------\n");
+    printf("%s", source);
+
+    printf("\nEnter modified source code.\n");
+    printf("Enter END on a separate line.\n\n");
+
+    insertSource(source);
+
+    printf("\nSource code edited successfully.\n");
+}
+
+/* HELP */
+
+void help()
+{
+    printf("\n========== HELP ==========\n");
+
+    printf("\n1. VIEW\n");
+    printf("   Display source code and lexical tokens.\n");
+
+    printf("\n2. HELP\n");
+    printf("   Display project information and validations.\n");
+
+    printf("\n3. EDIT\n");
+    printf("   Modify existing source code.\n");
+
+    printf("\n4. INSERT\n");
+    printf("   Insert new C source code.\n");
+
+    printf("\n5. EXIT\n");
+    printf("   Exit the project.\n");
+
+    printf("\n========== ERROR VALIDATIONS ==========\n");
+
+    printf("\n1. Variable should not start with a number\n");
+    printf("   Valid   : int age;\n");
+    printf("   Invalid : int 2age;\n");
+
+    printf("\n2. Binary number validation\n");
+    printf("   Valid   : 0b1010\n");
+    printf("   Invalid : 0b102\n");
+
+    printf("\n3. Octal number validation\n");
+    printf("   Valid   : 0755\n");
+    printf("   Invalid : 089\n");
+
+    printf("\n4. Hexadecimal number validation\n");
+    printf("   Valid   : 0x1A3F\n");
+    printf("   Invalid : 0x1G\n");
+
+    printf("\n5. Decimal number should not contain alphabets\n");
+    printf("   Valid   : 12345\n");
+    printf("   Invalid : 123abc\n");
+
+    printf("\n6. Curly braces { } should be properly closed\n");
+    printf("   Valid   : { int a; }\n");
+    printf("   Invalid : { int a;\n");
+
+    printf("\n7. Parentheses ( ) should be properly closed\n");
+    printf("   Valid   : if(a > 10)\n");
+    printf("   Invalid : if(a > 10\n");
+
+    printf("\n8. Square brackets [ ] should be opened and closed on same line\n");
+    printf("   Valid   : arr[10];\n");
+    printf("   Invalid : arr[\n");
+    printf("             10];\n");
+}
+
+/* MAIN FUNCTION */
+
+int main()
+{
+    char source[MAX] = "";
+
+    char *menu[] =
+    {
+        "VIEW",
+        "HELP",
+        "EDIT",
+        "INSERT",
+        "EXIT"
+    };
+
+    int option;
+    int i;
+
+    while(1)
+    {
+        printf("\n====================================================\n");
+        printf("              LEXICAL ANALYZER PROJECT\n");
+        printf("====================================================\n");
+
+        for(i = 0; i < 5; i++)
+        {
+            printf("%d. %s\n",
+                   i + 1,
+                   menu[i]);
+        }
+
+        printf("\nSelect the option: ");
+        scanf("%d", &option);
+        getchar();
+
+        if(option < 1 || option > 5)
+        {
+            printf("\nInvalid option\n");
+            continue;
+        }
+
+        printf("\n%s is selected\n",
+               menu[option - 1]);
+
+        switch(option)
+        {
+            case 1:
+                viewSource(source);
+                break;
+
+            case 2:
+                help();
+                break;
+
+            case 3:
+                editSource(source);
+                break;
+
+            case 4:
+                insertSource(source);
+                break;
+
+            case 5:
+                printf("\nExiting Lexical Analyzer...\n");
+                return 0;
+        }
+    }
+
+    return 0;
+}
